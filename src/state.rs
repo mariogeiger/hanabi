@@ -204,6 +204,7 @@ impl fmt::Debug for Action {
 #[derive(Debug)]
 pub struct State {
     turn: usize,
+    turn_empty_deck: usize,
     clues: usize,
     mistakes: usize,
     players: Vec<Vec<Card>>,
@@ -219,6 +220,7 @@ pub enum IllegalMoves {
     NoMoreClues,
     SelfClue,
     EmptyClue,
+    GameOver,
 }
 
 impl State {
@@ -234,6 +236,7 @@ impl State {
 
         State {
             turn: 0,
+            turn_empty_deck: 0,
             clues: MAXCLUES,
             mistakes: 0,
             players: players,
@@ -244,9 +247,18 @@ impl State {
         }
     }
 
+    pub fn gameover(&self) -> bool {
+        self.turn_empty_deck > self.players.len()
+            || self.mistakes >= MAXMISTAKES
+            || self.score() >= 25
+    }
+
     pub fn discard(&mut self, position: usize) -> Result<(), IllegalMoves> {
         if self.clues >= MAXCLUES {
-            return Result::Err(IllegalMoves::MaxClue);
+            return Err(IllegalMoves::MaxClue);
+        }
+        if self.gameover() {
+            return Err(IllegalMoves::GameOver);
         }
         let p = self.turn % self.players.len();
         let card = self.players[p].remove(position);
@@ -255,6 +267,8 @@ impl State {
 
         if let Some(card) = self.deck.pop() {
             self.players[p].insert(0, card);
+        } else {
+            self.turn_empty_deck += 1;
         }
 
         self.history.push(Action::Discard {
@@ -264,10 +278,13 @@ impl State {
         });
         self.turn += 1;
 
-        Result::Ok(())
+        Ok(())
     }
 
-    pub fn play(&mut self, position: usize) {
+    pub fn play(&mut self, position: usize) -> Result<(), IllegalMoves> {
+        if self.gameover() {
+            return Err(IllegalMoves::GameOver);
+        }
         let p = self.turn % self.players.len();
         let card = self.players[p].remove(position);
         let success = self.table[card.color.0] == card.value.0;
@@ -281,6 +298,8 @@ impl State {
 
         if let Some(card) = self.deck.pop() {
             self.players[p].insert(0, card);
+        } else {
+            self.turn_empty_deck += 1
         }
 
         self.history.push(Action::Play {
@@ -290,52 +309,59 @@ impl State {
             success: success,
         });
         self.turn += 1;
+
+        Ok(())
+    }
+
+    fn clue<F>(&mut self, target: usize, f: F) -> Result<usize, IllegalMoves>
+    where
+        F: Fn(&Card) -> bool,
+    {
+        if self.gameover() {
+            return Err(IllegalMoves::GameOver);
+        }
+        let p = self.turn % self.players.len();
+        if p == target {
+            return Err(IllegalMoves::SelfClue);
+        }
+        if self.clues == 0 {
+            return Err(IllegalMoves::NoMoreClues);
+        }
+        if !self.players[target].iter().any(f) {
+            return Err(IllegalMoves::EmptyClue);
+        }
+        self.clues -= 1;
+
+        if self.deck.is_empty() {
+            self.turn_empty_deck += 1;
+        }
+        self.turn += 1;
+
+        Ok(p)
     }
 
     pub fn clue_color(&mut self, target: usize, color: Color) -> Result<(), IllegalMoves> {
-        let p = self.turn % self.players.len();
-        if p == target {
-            return Result::Err(IllegalMoves::SelfClue);
-        }
-        if self.clues == 0 {
-            return Result::Err(IllegalMoves::NoMoreClues);
-        }
-        if !self.players[target].iter().any(|x| x.color == color) {
-            return Result::Err(IllegalMoves::EmptyClue);
-        }
-        self.clues -= 1;
+        let p = self.clue(target, |x| x.color == color)?;
 
         self.history.push(Action::ColorClue {
             player: p,
             target: target,
             color: color,
         });
-        self.turn += 1;
 
-        Result::Ok(())
+        Ok(())
     }
 
     pub fn clue_value(&mut self, target: usize, value: Value) -> Result<(), IllegalMoves> {
-        let p = self.turn % self.players.len();
-        if p == target {
-            return Result::Err(IllegalMoves::SelfClue);
-        }
-        if self.clues == 0 {
-            return Result::Err(IllegalMoves::NoMoreClues);
-        }
-        if !self.players[target].iter().any(|x| x.value == value) {
-            return Result::Err(IllegalMoves::EmptyClue);
-        }
-        self.clues -= 1;
+        let p = self.clue(target, |x| x.value == value)?;
 
         self.history.push(Action::ValueClue {
             player: p,
             target: target,
             value: value,
         });
-        self.turn += 1;
 
-        Result::Ok(())
+        Ok(())
     }
 
     pub fn score(&self) -> usize {
@@ -347,7 +373,17 @@ impl State {
     }
 
     pub fn encode(&self) -> Array1<f32> {
-        let mut x = Array1::from_elem((MAXPLAYERS - 2 + 1) + MAXPLAYERS + MAXCLUES + MAXMISTAKES + 50 + 5 * 10 + MAXPLAYERS * MAXCARDS * 10 + 100 * 19, -1.0);
+        let mut x = Array1::from_elem(
+            (MAXPLAYERS - 2 + 1)
+                + MAXPLAYERS
+                + MAXCLUES
+                + MAXMISTAKES
+                + 50
+                + 5 * 10
+                + MAXPLAYERS * MAXCARDS * 10
+                + 100 * 19,
+            -1.0,
+        );
         let mut off = 0;
 
         x[off + self.players.len() - 2] = 1.0;
@@ -373,7 +409,12 @@ impl State {
         off += 50;
 
         for color in Color::all() {
-            let cards: Vec<Card> = self.discard.iter().filter(|card| card.color == color).cloned().collect();
+            let cards: Vec<Card> = self
+                .discard
+                .iter()
+                .filter(|card| card.color == color)
+                .cloned()
+                .collect();
             for value in Value::all() {
                 for i in 0..cards.iter().filter(|card| card.value == value).count() {
                     x[off + i] = 1.0;
@@ -475,5 +516,9 @@ impl State {
         }
 
         x
+    }
+
+    pub fn decode(x: &Array1<f32>) -> Result<(), IllegalMoves> {
+        Ok(())
     }
 }
