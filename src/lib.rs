@@ -163,13 +163,7 @@ impl fmt::Display for Action {
                 player,
                 target,
                 color,
-            } => write!(
-                f,
-                "P{} clues P{} about {}'s",
-                player + 1,
-                target + 1,
-                color
-            ),
+            } => write!(f, "P{} clues P{} about {}'s", player + 1, target + 1, color),
             Action::ValueClue {
                 player,
                 target,
@@ -330,18 +324,44 @@ impl State {
 
         Result::Ok(())
     }
+
+    fn score(&self) -> i32 {
+        self.table.iter().sum()
+    }
 }
 
-fn main() {
-    let mut state = State::new(3);
-    println!("{:?}", state);
+#[macro_use]
+extern crate cpython;
 
-    state.clue_color(1, Color::r()).unwrap();
-    println!("{:?}", state);
+use cpython::PyResult;
+use std::cell::{Ref, RefCell, RefMut};
 
-    state.play(0);
-    println!("{:?}", state);
+py_module_initializer!(hanabi, inithanabi, PyInit_hanabi, |py, m| {
+    m.add(py, "__doc__", "This module is implemented in Rust.")?;
+    m.add_class::<Game>(py)?;
+    Ok(())
+});
 
-    state.discard(4).unwrap();
-    println!("{:?}", state);
-}
+py_class!(class Game |py| {
+    data state: RefCell<State>;
+    def __new__(_cls, nplayer: usize) -> PyResult<Game> {
+        Game::create_instance(py, RefCell::new(State::new(nplayer)))
+    }
+    def turn(&self) -> PyResult<i32> {
+        let state: Ref<State> = self.state(py).borrow();
+        Ok(state.turn)
+    }
+    def clue_color(&self, target: i32, color: i32) -> PyResult<bool> {
+        let mut state: RefMut<State> = self.state(py).borrow_mut();
+        match state.clue_color(target, Color(color)) {
+            Ok(_) => Ok(true),
+            Err(_) => Ok(false)
+        }
+    }
+    def history(&self) -> PyResult<Vec<String>> {
+        let state: Ref<State> = self.state(py).borrow();
+        Ok(state.history.iter().map(|x| format!("{}", x)).collect())
+    }
+    // encode state: return numpy array of the current state
+    // decode action: evolve game with action and return reward
+});
