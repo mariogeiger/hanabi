@@ -68,6 +68,10 @@ impl Value {
     pub fn all() -> Vec<Value> {
         (0..5).map(|x| Value(x)).collect()
     }
+
+    pub fn copies(&self) -> usize {
+        [3, 2, 2, 2, 1][self.0]
+    }
 }
 
 impl fmt::Display for Value {
@@ -94,8 +98,7 @@ impl Card {
         let mut deck = Vec::new();
         for color in Color::all() {
             for value in Value::all() {
-                let copies = [3, 2, 2, 2, 1][value.0];
-                for _ in 0..copies {
+                for _ in 0..value.copies() {
                     deck.push(Card::new(value, color));
                 }
             }
@@ -344,7 +347,7 @@ impl State {
     }
 
     pub fn encode(&self) -> Array1<f32> {
-        let mut x = Array1::from_elem((MAXPLAYERS - 2 + 1) + MAXPLAYERS + MAXCLUES + MAXMISTAKES + MAXPLAYERS * MAXCARDS * 10 + 100 * 19, -1.0);
+        let mut x = Array1::from_elem((MAXPLAYERS - 2 + 1) + MAXPLAYERS + MAXCLUES + MAXMISTAKES + 50 + 5 * 10 + MAXPLAYERS * MAXCARDS * 10 + 100 * 19, -1.0);
         let mut off = 0;
 
         x[off + self.players.len() - 2] = 1.0;
@@ -353,17 +356,30 @@ impl State {
         x[off + self.turn % self.players.len()] = 1.0;
         off += MAXPLAYERS;
 
-        for _ in 0..self.clues {
-            x[off] = 1.0;
-            off += 1;
+        for i in 0..self.clues {
+            x[off + i] = 1.0;
         }
-        off += MAXCLUES - self.clues;
+        off += MAXCLUES;
 
-        for _ in 0..self.mistakes {
-            x[off] = 1.0;
-            off += 1;
+        for i in 0..self.mistakes {
+            x[off + i] = 1.0;
         }
-        off += MAXMISTAKES - self.mistakes;
+        off += MAXMISTAKES;
+
+        for i in 0..self.deck.len() {
+            x[off + i] = 1.0;
+        }
+        off += 50;
+
+        for color in Color::all() {
+            let cards: Vec<Card> = self.discard.iter().filter(|card| card.color == color).cloned().collect();
+            for value in Value::all() {
+                for i in 0..cards.iter().filter(|card| card.value == value).count() {
+                    x[off + i] = 1.0;
+                }
+                off += value.copies();
+            }
+        }
 
         for cards in &self.players {
             for card in cards {
