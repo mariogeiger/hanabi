@@ -5,12 +5,27 @@ use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::fmt;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 struct Color(i32);
 
 impl Color {
     fn all() -> Vec<Color> {
-        vec![Color(0), Color(1), Color(2), Color(3), Color(4)]
+        (0..5).map(|x| Color(x)).collect()
+    }
+    fn r() -> Color {
+        Color(0)
+    }
+    fn g() -> Color {
+        Color(1)
+    }
+    fn b() -> Color {
+        Color(2)
+    }
+    fn y() -> Color {
+        Color(3)
+    }
+    fn p() -> Color {
+        Color(4)
     }
 }
 
@@ -27,22 +42,12 @@ impl fmt::Display for Color {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 struct Value(i32);
 
 impl Value {
     fn all() -> Vec<Value> {
-        vec![Value(0), Value(1), Value(2), Value(3), Value(4)]
-    }
-    fn repetition(&self) -> i32 {
-        match self.0 {
-            0 => 3,
-            1 => 2,
-            2 => 2,
-            3 => 2,
-            4 => 1,
-            _ => 0,
-        }
+        (0..5).map(|x| Value(x)).collect()
     }
 }
 
@@ -70,7 +75,8 @@ impl Card {
         let mut deck = Vec::new();
         for color in Color::all() {
             for value in Value::all() {
-                for _ in 0..value.repetition() {
+                let copies = [3, 2, 2, 2, 1][value.0 as usize];
+                for _ in 0..copies {
                     deck.push(Card::new(value, color));
                 }
             }
@@ -91,7 +97,6 @@ impl fmt::Debug for Card {
     }
 }
 
-#[derive(Debug)]
 enum Action {
     Play {
         player: i32,
@@ -104,12 +109,80 @@ enum Action {
         position: i32,
         card: Card,
     },
-    Clue {
+    ColorClue {
         player: i32,
         target: i32,
-        position: i32,
-        card: Card,
+        color: Color,
     },
+    ValueClue {
+        player: i32,
+        target: i32,
+        value: Value,
+    },
+}
+
+impl fmt::Display for Action {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Action::Play {
+                player,
+                position,
+                card,
+                success,
+            } => {
+                if *success {
+                    write!(
+                        f,
+                        "P{} plays {} from position #{}",
+                        player + 1,
+                        card,
+                        position + 1
+                    )
+                } else {
+                    write!(
+                        f,
+                        "P{} plays wrongly {} from position #{}",
+                        player + 1,
+                        card,
+                        position + 1
+                    )
+                }
+            }
+            Action::Discard {
+                player,
+                position,
+                card,
+            } => write!(
+                f,
+                "P{} discard {} from position #{}",
+                player + 1,
+                card,
+                position + 1
+            ),
+            Action::ColorClue {
+                player,
+                target,
+                color,
+            } => write!(
+                f,
+                "P{} clues P{} about {}'s",
+                player + 1,
+                target + 1,
+                color
+            ),
+            Action::ValueClue {
+                player,
+                target,
+                value,
+            } => write!(f, "P{} clues P{} about {}'s", player + 1, target + 1, value),
+        }
+    }
+}
+
+impl fmt::Debug for Action {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
+    }
 }
 
 #[derive(Debug)]
@@ -124,21 +197,27 @@ struct State {
     history: Vec<Action>,
 }
 
+#[derive(Debug)]
+enum IllegalMoves {
+    MaxClue,
+    NoMoreClues,
+    SelfClue,
+    EmptyClue,
+}
+
 const MAXCLUES: i32 = 8;
 const MAXMISTAKES: i32 = 3;
 
 impl State {
-    fn new() -> State {
+    fn new(nplayer: usize) -> State {
         let mut deck = Card::deck();
         deck.shuffle(&mut thread_rng());
 
-        let mut iter = deck.chunks_exact(5);
-        let players = vec![
-            iter.next().unwrap().to_vec(),
-            iter.next().unwrap().to_vec(),
-            iter.next().unwrap().to_vec(),
-        ];
-        deck = deck[players.len() * 5..].to_vec();
+        let nc = [0, 0, 5, 5, 4, 4][nplayer as usize];
+        let players: Vec<Vec<Card>> = (0..nplayer)
+            .map(|i| deck[i * nc..(i + 1) * nc].to_vec())
+            .collect();
+        deck = deck[nplayer * nc..].to_vec();
 
         State {
             turn: 0,
@@ -152,8 +231,10 @@ impl State {
         }
     }
 
-    fn discard(&mut self, position: i32) {
-        assert!(self.clues < MAXCLUES);
+    fn discard(&mut self, position: i32) -> Result<(), IllegalMoves> {
+        if self.clues >= MAXCLUES {
+            return Result::Err(IllegalMoves::MaxClue);
+        }
         let p = self.turn % self.players.len() as i32;
         let card = self.players[p as usize].remove(position as usize);
         self.discard.push(card);
@@ -169,6 +250,8 @@ impl State {
             card: card,
         });
         self.turn += 1;
+
+        Result::Ok(())
     }
 
     fn play(&mut self, position: i32) {
@@ -196,33 +279,69 @@ impl State {
         self.turn += 1;
     }
 
-    fn clue(&mut self, target: i32, position: i32) {
+    fn clue_color(&mut self, target: i32, color: Color) -> Result<(), IllegalMoves> {
         let p = self.turn % self.players.len() as i32;
-        assert!(p != target);
-        assert!(self.clues > 0);
-        let card = self.players[target as usize][position as usize];
+        if p == target {
+            return Result::Err(IllegalMoves::SelfClue);
+        }
+        if self.clues == 0 {
+            return Result::Err(IllegalMoves::NoMoreClues);
+        }
+        if !self.players[target as usize]
+            .iter()
+            .any(|x| x.color == color)
+        {
+            return Result::Err(IllegalMoves::EmptyClue);
+        }
         self.clues -= 1;
 
-        self.history.push(Action::Clue {
+        self.history.push(Action::ColorClue {
             player: p,
             target: target,
-            position: position,
-            card: card,
+            color: color,
         });
         self.turn += 1;
+
+        Result::Ok(())
+    }
+
+    fn clue_value(&mut self, target: i32, value: Value) -> Result<(), IllegalMoves> {
+        let p = self.turn % self.players.len() as i32;
+        if p == target {
+            return Result::Err(IllegalMoves::SelfClue);
+        }
+        if self.clues == 0 {
+            return Result::Err(IllegalMoves::NoMoreClues);
+        }
+        if !self.players[target as usize]
+            .iter()
+            .any(|x| x.value == value)
+        {
+            return Result::Err(IllegalMoves::EmptyClue);
+        }
+        self.clues -= 1;
+
+        self.history.push(Action::ValueClue {
+            player: p,
+            target: target,
+            value: value,
+        });
+        self.turn += 1;
+
+        Result::Ok(())
     }
 }
 
 fn main() {
-    let mut state = State::new();
+    let mut state = State::new(3);
     println!("{:?}", state);
 
-    state.clue(1, 0);
+    state.clue_color(1, Color::r()).unwrap();
     println!("{:?}", state);
 
     state.play(0);
     println!("{:?}", state);
 
-    state.discard(4);
+    state.discard(4).unwrap();
     println!("{:?}", state);
 }
