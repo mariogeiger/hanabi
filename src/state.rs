@@ -8,6 +8,11 @@ use std::fmt;
 #[derive(Clone, Copy, PartialEq)]
 pub struct Color(usize);
 
+const MAXCLUES: usize = 8;
+const MAXMISTAKES: usize = 3;
+const MAXPLAYERS: usize = 5;
+const MAXCARDS: usize = 5;
+
 impl Color {
     pub fn all() -> Vec<Color> {
         (0..5).map(|x| Color(x)).collect()
@@ -213,15 +218,12 @@ pub enum IllegalMoves {
     EmptyClue,
 }
 
-const MAXCLUES: usize = 8;
-const MAXMISTAKES: usize = 3;
-
 impl State {
     pub fn new(nplayer: usize) -> State {
         let mut deck = Card::deck();
         deck.shuffle(&mut thread_rng());
 
-        let nc = [0, 0, 5, 5, 4, 4][nplayer];
+        let nc = [0, 0, MAXCARDS, MAXCARDS, MAXCARDS - 1, MAXCARDS - 1][nplayer];
         let players: Vec<Vec<Card>> = (0..nplayer)
             .map(|i| deck[i * nc..(i + 1) * nc].to_vec())
             .collect();
@@ -295,10 +297,7 @@ impl State {
         if self.clues == 0 {
             return Result::Err(IllegalMoves::NoMoreClues);
         }
-        if !self.players[target]
-            .iter()
-            .any(|x| x.color == color)
-        {
+        if !self.players[target].iter().any(|x| x.color == color) {
             return Result::Err(IllegalMoves::EmptyClue);
         }
         self.clues -= 1;
@@ -321,10 +320,7 @@ impl State {
         if self.clues == 0 {
             return Result::Err(IllegalMoves::NoMoreClues);
         }
-        if !self.players[target]
-            .iter()
-            .any(|x| x.value == value)
-        {
+        if !self.players[target].iter().any(|x| x.value == value) {
             return Result::Err(IllegalMoves::EmptyClue);
         }
         self.clues -= 1;
@@ -348,16 +344,116 @@ impl State {
     }
 
     pub fn encode(&self) -> Array1<f32> {
-        let mut x = Array1::from_elem(4 + 5 * 5 * 10, -1.0);
+        let mut x = Array1::from_elem((MAXPLAYERS - 2 + 1) + MAXPLAYERS + MAXCLUES + MAXMISTAKES + MAXPLAYERS * MAXCARDS * 10 + 100 * 19, -1.0);
         let mut off = 0;
 
         x[off + self.players.len() - 2] = 1.0;
-        off += 4;
+        off += MAXPLAYERS - 2 + 1;
+
+        x[off + self.turn % self.players.len()] = 1.0;
+        off += MAXPLAYERS;
+
+        for _ in 0..self.clues {
+            x[off] = 1.0;
+            off += 1;
+        }
+        off += MAXCLUES - self.clues;
+
+        for _ in 0..self.mistakes {
+            x[off] = 1.0;
+            off += 1;
+        }
+        off += MAXMISTAKES - self.mistakes;
 
         for cards in &self.players {
             for card in cards {
                 x[off + card.value.0] = 1.0;
                 off += 5;
+                x[off + card.color.0] = 1.0;
+                off += 5;
+            }
+            off += (MAXCARDS - cards.len()) * 10;
+        }
+        off += (MAXPLAYERS - self.players.len()) * MAXCARDS * 10;
+
+        for &cards in &self.table {
+            for _ in 0..cards {
+                x[off] = 1.0;
+                off += 1;
+            }
+            off += 5 - cards;
+        }
+
+        for action in self.history.iter().rev() {
+            assert!(MAXCARDS == MAXPLAYERS);
+            match action {
+                Action::Play {
+                    player: _,
+                    position,
+                    card,
+                    success,
+                } => {
+                    if *success {
+                        x[off] = 1.0;
+                    } else {
+                        x[off + 1] = 1.0;
+                    }
+                    off += 4;
+
+                    x[off + position] = 1.0;
+                    off += MAXCARDS;
+
+                    x[off + card.value.0] = 1.0;
+                    off += 5;
+                    x[off + card.color.0] = 1.0;
+                    off += 5;
+                }
+                Action::Discard {
+                    player: _,
+                    position,
+                    card,
+                } => {
+                    x[off + 2] = 1.0;
+                    off += 4;
+
+                    x[off + position] = 1.0;
+                    off += MAXCARDS;
+
+                    x[off + card.value.0] = 1.0;
+                    off += 5;
+                    x[off + card.color.0] = 1.0;
+                    off += 5;
+                }
+                Action::ColorClue {
+                    player: _,
+                    target,
+                    color,
+                } => {
+                    x[off + 3] = 1.0;
+                    off += 4;
+
+                    x[off + target] = 1.0;
+                    off += MAXPLAYERS;
+
+                    off += 5;
+                    x[off + color.0] = 1.0;
+                    off += 5;
+                }
+                Action::ValueClue {
+                    player: _,
+                    target,
+                    value,
+                } => {
+                    x[off + 3] = 1.0;
+                    off += 4;
+
+                    x[off + target] = 1.0;
+                    off += MAXPLAYERS;
+
+                    x[off + value.0] = 1.0;
+                    off += 5;
+                    off += 5;
+                }
             }
         }
 

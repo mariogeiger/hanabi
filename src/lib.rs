@@ -1,15 +1,13 @@
-extern crate rand;
-
-#[macro_use(array)]
 extern crate ndarray;
+extern crate rand;
 
 mod state;
 
-use ndarray::Array1;
 use numpy::{IntoPyArray, PyArray1};
-use pyo3::prelude::*;
-use pyo3::prelude::{pymodule, Py, PyModule, PyResult, Python};
-use state::{IllegalMoves, State, Value, Color};
+use pyo3::prelude::{
+    pyclass, pymethods, pymodule, Py, PyModule, PyObject, PyRawObject, PyResult, Python,
+};
+use state::{Color, IllegalMoves, State, Value};
 
 #[pymodule]
 fn hanabi(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -54,8 +52,7 @@ impl Game {
     }
 
     fn encode(&self, py: Python) -> Py<PyArray1<f32>> {
-        let x: Array1<f32> = array![1.0, 2.0, 3.0, 4.0];
-        x.into_pyarray(py).to_owned()
+        self.state.encode().into_pyarray(py).to_owned()
     }
 
     fn decode(&self, x: &PyArray1<f64>) -> String {
