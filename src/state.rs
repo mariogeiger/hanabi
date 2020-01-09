@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 
+use ndarray::Array1;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::fmt;
 
 #[derive(Clone, Copy, PartialEq)]
-pub struct Color(i32);
+pub struct Color(usize);
 
 impl Color {
     pub fn all() -> Vec<Color> {
@@ -52,11 +53,11 @@ impl fmt::Display for Color {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub struct Value(i32);
+pub struct Value(usize);
 
 impl Value {
-    pub fn new(value: i32) -> Value {
-        assert!(value >= 0 && value < 5);
+    pub fn new(value: usize) -> Value {
+        assert!(value < 5);
         Value(value)
     }
     pub fn all() -> Vec<Value> {
@@ -88,7 +89,7 @@ impl Card {
         let mut deck = Vec::new();
         for color in Color::all() {
             for value in Value::all() {
-                let copies = [3, 2, 2, 2, 1][value.0 as usize];
+                let copies = [3, 2, 2, 2, 1][value.0];
                 for _ in 0..copies {
                     deck.push(Card::new(value, color));
                 }
@@ -112,24 +113,24 @@ impl fmt::Debug for Card {
 
 pub enum Action {
     Play {
-        player: i32,
-        position: i32,
+        player: usize,
+        position: usize,
         card: Card,
         success: bool,
     },
     Discard {
-        player: i32,
-        position: i32,
+        player: usize,
+        position: usize,
         card: Card,
     },
     ColorClue {
-        player: i32,
-        target: i32,
+        player: usize,
+        target: usize,
         color: Color,
     },
     ValueClue {
-        player: i32,
-        target: i32,
+        player: usize,
+        target: usize,
         value: Value,
     },
 }
@@ -194,11 +195,11 @@ impl fmt::Debug for Action {
 
 #[derive(Debug)]
 pub struct State {
-    turn: i32,
-    clues: i32,
-    mistakes: i32,
+    turn: usize,
+    clues: usize,
+    mistakes: usize,
     players: Vec<Vec<Card>>,
-    table: [i32; 5],
+    table: [usize; 5],
     deck: Vec<Card>,
     discard: Vec<Card>,
     history: Vec<Action>,
@@ -212,15 +213,15 @@ pub enum IllegalMoves {
     EmptyClue,
 }
 
-const MAXCLUES: i32 = 8;
-const MAXMISTAKES: i32 = 3;
+const MAXCLUES: usize = 8;
+const MAXMISTAKES: usize = 3;
 
 impl State {
     pub fn new(nplayer: usize) -> State {
         let mut deck = Card::deck();
         deck.shuffle(&mut thread_rng());
 
-        let nc = [0, 0, 5, 5, 4, 4][nplayer as usize];
+        let nc = [0, 0, 5, 5, 4, 4][nplayer];
         let players: Vec<Vec<Card>> = (0..nplayer)
             .map(|i| deck[i * nc..(i + 1) * nc].to_vec())
             .collect();
@@ -238,17 +239,17 @@ impl State {
         }
     }
 
-    pub fn discard(&mut self, position: i32) -> Result<(), IllegalMoves> {
+    pub fn discard(&mut self, position: usize) -> Result<(), IllegalMoves> {
         if self.clues >= MAXCLUES {
             return Result::Err(IllegalMoves::MaxClue);
         }
-        let p = self.turn % self.players.len() as i32;
-        let card = self.players[p as usize].remove(position as usize);
+        let p = self.turn % self.players.len();
+        let card = self.players[p].remove(position);
         self.discard.push(card);
         self.clues += 1;
 
         if let Some(card) = self.deck.pop() {
-            self.players[p as usize].insert(0, card);
+            self.players[p].insert(0, card);
         }
 
         self.history.push(Action::Discard {
@@ -261,20 +262,20 @@ impl State {
         Result::Ok(())
     }
 
-    pub fn play(&mut self, position: i32) {
-        let p = self.turn % self.players.len() as i32;
-        let card = self.players[p as usize].remove(position as usize);
-        let success = self.table[card.color.0 as usize] == card.value.0 as i32;
+    pub fn play(&mut self, position: usize) {
+        let p = self.turn % self.players.len();
+        let card = self.players[p].remove(position);
+        let success = self.table[card.color.0] == card.value.0;
 
         if success {
-            self.table[card.color.0 as usize] += 1;
+            self.table[card.color.0] += 1;
         } else {
             self.discard.push(card);
             self.mistakes += 1;
         }
 
         if let Some(card) = self.deck.pop() {
-            self.players[p as usize].insert(0, card);
+            self.players[p].insert(0, card);
         }
 
         self.history.push(Action::Play {
@@ -286,15 +287,15 @@ impl State {
         self.turn += 1;
     }
 
-    pub fn clue_color(&mut self, target: i32, color: Color) -> Result<(), IllegalMoves> {
-        let p = self.turn % self.players.len() as i32;
+    pub fn clue_color(&mut self, target: usize, color: Color) -> Result<(), IllegalMoves> {
+        let p = self.turn % self.players.len();
         if p == target {
             return Result::Err(IllegalMoves::SelfClue);
         }
         if self.clues == 0 {
             return Result::Err(IllegalMoves::NoMoreClues);
         }
-        if !self.players[target as usize]
+        if !self.players[target]
             .iter()
             .any(|x| x.color == color)
         {
@@ -312,15 +313,15 @@ impl State {
         Result::Ok(())
     }
 
-    pub fn clue_value(&mut self, target: i32, value: Value) -> Result<(), IllegalMoves> {
-        let p = self.turn % self.players.len() as i32;
+    pub fn clue_value(&mut self, target: usize, value: Value) -> Result<(), IllegalMoves> {
+        let p = self.turn % self.players.len();
         if p == target {
             return Result::Err(IllegalMoves::SelfClue);
         }
         if self.clues == 0 {
             return Result::Err(IllegalMoves::NoMoreClues);
         }
-        if !self.players[target as usize]
+        if !self.players[target]
             .iter()
             .any(|x| x.value == value)
         {
@@ -338,11 +339,28 @@ impl State {
         Result::Ok(())
     }
 
-    pub fn score(&self) -> i32 {
+    pub fn score(&self) -> usize {
         self.table.iter().sum()
     }
 
-    pub fn turn(&self) -> i32 {
+    pub fn turn(&self) -> usize {
         self.turn
+    }
+
+    pub fn encode(&self) -> Array1<f32> {
+        let mut x = Array1::from_elem(4 + 5 * 5 * 10, -1.0);
+        let mut off = 0;
+
+        x[off + self.players.len() - 2] = 1.0;
+        off += 4;
+
+        for cards in &self.players {
+            for card in cards {
+                x[off + card.value.0] = 1.0;
+                off += 5;
+            }
+        }
+
+        x
     }
 }

@@ -33,7 +33,7 @@ impl Game {
         });
     }
 
-    fn clue_value(&mut self, target: i32, value: i32) -> String {
+    fn clue_value(&mut self, target: usize, value: usize) -> String {
         match self.state.clue_value(target, Value::new(value)) {
             Ok(_) => "".to_string(),
             Err(IllegalMoves::EmptyClue) => "empty clue".to_string(),
@@ -43,7 +43,7 @@ impl Game {
         }
     }
 
-    fn clue_color(&mut self, target: i32, color: &str) -> String {
+    fn clue_color(&mut self, target: usize, color: &str) -> String {
         match self.state.clue_color(target, Color::new(color)) {
             Ok(_) => "".to_string(),
             Err(IllegalMoves::EmptyClue) => "empty clue".to_string(),
@@ -68,7 +68,7 @@ impl Game {
     }
 
     #[getter]
-    fn get_turn(&self) -> i32 {
+    fn get_turn(&self) -> usize {
         self.state.turn()
     }
 }
