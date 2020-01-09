@@ -353,7 +353,8 @@ impl State {
         x[off + self.players.len() - 2] = 1.0;
         off += MAXPLAYERS - 2 + 1;
 
-        x[off + self.turn % self.players.len()] = 1.0;
+        let player = self.turn % self.players.len();
+        x[off + player] = 1.0;
         off += MAXPLAYERS;
 
         for i in 0..self.clues {
@@ -381,14 +382,14 @@ impl State {
             }
         }
 
-        for cards in &self.players {
-            for card in cards {
-                x[off + card.value.0] = 1.0;
-                off += 5;
-                x[off + card.color.0] = 1.0;
-                off += 5;
+        for (i, cards) in self.players.iter().enumerate() {
+            if i != player {
+                for (j, card) in cards.iter().enumerate() {
+                    x[off + 10 * j + card.value.0] = 1.0;
+                    x[off + 10 * j + 5 + card.color.0] = 1.0;
+                }
             }
-            off += (MAXCARDS - cards.len()) * 10;
+            off += MAXCARDS * 10;
         }
         off += (MAXPLAYERS - self.players.len()) * MAXCARDS * 10;
 
