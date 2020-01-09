@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use ndarray::Array1;
+use ndarray::{s, Array1, ArrayView1};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use std::fmt;
@@ -17,7 +17,11 @@ impl Color {
     pub fn all() -> Vec<Color> {
         (0..5).map(|x| Color(x)).collect()
     }
-    pub fn new(color: &str) -> Color {
+    pub fn new(color: usize) -> Color {
+        assert!(color < 5);
+        Color(color)
+    }
+    pub fn from_str(color: &str) -> Color {
         match color {
             "r" => Color(0),
             "g" => Color(1),
@@ -221,6 +225,7 @@ pub enum IllegalMoves {
     SelfClue,
     EmptyClue,
     GameOver,
+    Error,
 }
 
 impl State {
@@ -247,6 +252,14 @@ impl State {
         }
     }
 
+    pub fn deck(&self) -> &Vec<Card> {
+        &self.deck
+    }
+
+    pub fn history(&self) -> &Vec<Action> {
+        &self.history
+    }
+
     pub fn gameover(&self) -> bool {
         self.turn_empty_deck > self.players.len()
             || self.mistakes >= MAXMISTAKES
@@ -261,7 +274,11 @@ impl State {
             return Err(IllegalMoves::GameOver);
         }
         let p = self.turn % self.players.len();
-        let card = self.players[p].remove(position);
+        let cards = &mut self.players[p];
+        if position >= cards.len() {
+            return Err(IllegalMoves::Error);
+        }
+        let card = cards.remove(position);
         self.discard.push(card);
         self.clues += 1;
 
@@ -286,7 +303,11 @@ impl State {
             return Err(IllegalMoves::GameOver);
         }
         let p = self.turn % self.players.len();
-        let card = self.players[p].remove(position);
+        let cards = &mut self.players[p];
+        if position >= cards.len() {
+            return Err(IllegalMoves::Error);
+        }
+        let card = cards.remove(position);
         let success = self.table[card.color.0] == card.value.0;
 
         if success {
@@ -317,6 +338,9 @@ impl State {
     where
         F: Fn(&Card) -> bool,
     {
+        if target >= self.players.len() {
+            return Err(IllegalMoves::Error);
+        }
         if self.gameover() {
             return Err(IllegalMoves::GameOver);
         }
@@ -518,7 +542,42 @@ impl State {
         x
     }
 
-    pub fn decode(x: &Array1<f32>) -> Result<(), IllegalMoves> {
-        Ok(())
+    pub fn decode(&mut self, x: &ArrayView1<f32>) -> Result<usize, IllegalMoves> {
+        if x.len() != 3 + MAXCARDS + MAXPLAYERS + 10 {
+            return Err(IllegalMoves::Error);
+        }
+        match argmax(&x.slice(s![..3])) {
+            0 => {
+                self.play(argmax(&x.slice(s![3..3 + MAXCARDS])))?;
+            }
+            1 => {
+                self.discard(argmax(&x.slice(s![3..3 + MAXCARDS])))?;
+            }
+            2 => {
+                let target = argmax(&x.slice(s![3 + MAXCARDS..3 + MAXCARDS + MAXPLAYERS]));
+                let i = argmax(&x.slice(s![-10..]));
+                if i < 5 {
+                    self.clue_value(target, Value::new(i))?;
+                } else {
+                    self.clue_color(target, Color::new(i - 5))?;
+                }
+            }
+            _ => {
+                panic!();
+            }
+        }
+        Ok(self.score())
     }
+}
+
+fn argmax(x: &ArrayView1<f32>) -> usize {
+    let mut i = 0;
+    let mut max = x[0];
+    for j in 1..x.len() {
+        if x[j] > max {
+            i = j;
+            max = x[j];
+        }
+    }
+    i
 }
