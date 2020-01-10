@@ -10,11 +10,11 @@ edition = "2018"
 crate-type = ["cdylib"]
 
 [dependencies]
-rand = "0.7"
-numpy = "0.7.0"
-ndarray = "0.13"
+rand = "*"
+numpy = "*"
+ndarray = "*"
 getset = "*"
 
 [dependencies.pyo3]
-version = "0.8.5"
+version = "*"
 features = ["extension-module"]

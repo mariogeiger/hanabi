@@ -81,8 +81,6 @@ def linear(in_features, out_features, bias=True):
 
 
 def play_and_train(args, policy, optim, avg_score):
-
-
     total_loss = 0
     turns = 0
     scores = []
@@ -157,6 +155,13 @@ def execute(args):
 
     optim = torch.optim.Adam(policy.parameters(), lr=args.lr)
 
+    if args.restore:
+        with open(args.restore, 'rb') as f:
+            torch.load(f)
+            x = torch.load(f, map_location=args.device)
+            scores = x['scores']
+            policy.load_state_dict(x['state'])
+
     t = tqdm.tqdm()
     for i in itertools.count(1):
         avg_score = mean(scores[-args.n_avg:])
@@ -186,20 +191,24 @@ def main():
     parser.add_argument("--n", type=int, default=500)
     parser.add_argument("--n_avg", type=int, default=1000)
     parser.add_argument("--beta", type=float, default=1.0)
+    parser.add_argument("--restore", type=str)
 
     parser.add_argument("--device", type=str, required=True)
 
     parser.add_argument("--pickle", type=str, required=True)
     args = parser.parse_args()
 
+    new = True
     torch.save(args, args.pickle)
     try:
         for res in execute(args):
             with open(args.pickle, 'wb') as f:
                 torch.save(args, f)
                 torch.save(res, f)
+                new = False
     except:
-        os.remove(args.pickle)
+        if new:
+            os.remove(args.pickle)
         raise
 
 if __name__ == "__main__":
