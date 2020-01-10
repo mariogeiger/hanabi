@@ -8,7 +8,7 @@ use numpy::{IntoPyArray, PyArray1};
 use pyo3::prelude::{
     pyclass, pymethods, pymodule, Py, PyModule, PyObject, PyRawObject, PyResult, Python, ToPyObject,
 };
-use state::{Color, State, Value};
+use state::{Color, IllegalMoves, State, Value};
 
 #[pymodule]
 fn hanabi(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -48,9 +48,17 @@ impl Game {
 
     fn clue(&mut self, py: Python, target: usize, info: PyObject) -> Option<String> {
         match if let Ok(value) = info.extract::<usize>(py) {
-            self.state.clue_value(target, Value::new(value))
+            if 1 <= value && value <= 5 {
+                self.state.clue_value(target, Value::new(value - 1))
+            } else {
+                Err(IllegalMoves::Error)
+            }
         } else if let Ok(color) = info.extract::<&str>(py) {
-            self.state.clue_color(target, Color::from_str(color))
+            if "rgbyp".to_string().contains(color) {
+                self.state.clue_color(target, Color::from_str(color))
+            } else {
+                Err(IllegalMoves::Error)
+            }
         } else {
             Ok(())
         } {
