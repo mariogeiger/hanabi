@@ -40,23 +40,22 @@ impl Game {
     }
 
     fn discard(&mut self, position: usize) -> String {
-        match self.state.discard(position) {
+        match self.state.play_discard(position) {
             Ok(_) => "".to_string(),
             Err(err) => format!("{:?}", err),
         }
     }
 
-    fn clue_value(&mut self, target: usize, value: usize) -> String {
-        match self.state.clue_value(target, Value::new(value)) {
-            Ok(_) => "".to_string(),
-            Err(err) => format!("{:?}", err),
-        }
-    }
-
-    fn clue_color(&mut self, target: usize, color: &str) -> String {
-        match self.state.clue_color(target, Color::from_str(color)) {
-            Ok(_) => "".to_string(),
-            Err(err) => format!("{:?}", err),
+    fn clue(&mut self, py: Python, target: usize, info: PyObject) -> Option<String> {
+        match if let Ok(value) = info.extract::<usize>(py) {
+            self.state.clue_value(target, Value::new(value))
+        } else if let Ok(color) = info.extract::<&str>(py) {
+            self.state.clue_color(target, Color::from_str(color))
+        } else {
+            Ok(())
+        } {
+            Ok(_) => None,
+            Err(err) => Some(format!("{:?}", err)),
         }
     }
 
@@ -74,7 +73,7 @@ impl Game {
 
     #[getter]
     fn get_turn(&self) -> usize {
-        self.state.turn()
+        *self.state.turn()
     }
 
     #[getter]
@@ -89,6 +88,10 @@ impl Game {
 
     #[getter]
     fn get_history(&self) -> Vec<String> {
-        self.state.history().iter().map(|x| format!("{}", x)).collect()
+        self.state
+            .history()
+            .iter()
+            .map(|x| format!("{}", x))
+            .collect()
     }
 }

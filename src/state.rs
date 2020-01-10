@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use getset::Getters;
 use ndarray::{s, Array1, ArrayView1};
 use rand::seq::SliceRandom;
 use rand::thread_rng;
@@ -205,7 +206,8 @@ impl fmt::Debug for Action {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Getters)]
+#[get = "pub"]
 pub struct State {
     turn: usize,
     turn_empty_deck: usize,
@@ -252,50 +254,10 @@ impl State {
         }
     }
 
-    pub fn deck(&self) -> &Vec<Card> {
-        &self.deck
-    }
-
-    pub fn history(&self) -> &Vec<Action> {
-        &self.history
-    }
-
     pub fn gameover(&self) -> bool {
         self.turn_empty_deck > self.players.len()
             || self.mistakes >= MAXMISTAKES
             || self.score() >= 25
-    }
-
-    pub fn discard(&mut self, position: usize) -> Result<(), IllegalMoves> {
-        if self.clues >= MAXCLUES {
-            return Err(IllegalMoves::MaxClue);
-        }
-        if self.gameover() {
-            return Err(IllegalMoves::GameOver);
-        }
-        let p = self.turn % self.players.len();
-        let cards = &mut self.players[p];
-        if position >= cards.len() {
-            return Err(IllegalMoves::Error);
-        }
-        let card = cards.remove(position);
-        self.discard.push(card);
-        self.clues += 1;
-
-        if let Some(card) = self.deck.pop() {
-            self.players[p].insert(0, card);
-        } else {
-            self.turn_empty_deck += 1;
-        }
-
-        self.history.push(Action::Discard {
-            player: p,
-            position: position,
-            card: card,
-        });
-        self.turn += 1;
-
-        Ok(())
     }
 
     pub fn play(&mut self, position: usize) -> Result<(), IllegalMoves> {
@@ -328,6 +290,38 @@ impl State {
             position: position,
             card: card,
             success: success,
+        });
+        self.turn += 1;
+
+        Ok(())
+    }
+
+    pub fn play_discard(&mut self, position: usize) -> Result<(), IllegalMoves> {
+        if self.clues >= MAXCLUES {
+            return Err(IllegalMoves::MaxClue);
+        }
+        if self.gameover() {
+            return Err(IllegalMoves::GameOver);
+        }
+        let p = self.turn % self.players.len();
+        let cards = &mut self.players[p];
+        if position >= cards.len() {
+            return Err(IllegalMoves::Error);
+        }
+        let card = cards.remove(position);
+        self.discard.push(card);
+        self.clues += 1;
+
+        if let Some(card) = self.deck.pop() {
+            self.players[p].insert(0, card);
+        } else {
+            self.turn_empty_deck += 1;
+        }
+
+        self.history.push(Action::Discard {
+            player: p,
+            position: position,
+            card: card,
         });
         self.turn += 1;
 
@@ -390,10 +384,6 @@ impl State {
 
     pub fn score(&self) -> usize {
         self.table.iter().sum()
-    }
-
-    pub fn turn(&self) -> usize {
-        self.turn
     }
 
     pub fn encode(&self) -> Array1<f32> {
@@ -551,7 +541,7 @@ impl State {
                 self.play(argmax(&x.slice(s![3..3 + MAXCARDS])))?;
             }
             1 => {
-                self.discard(argmax(&x.slice(s![3..3 + MAXCARDS])))?;
+                self.play_discard(argmax(&x.slice(s![3..3 + MAXCARDS])))?;
             }
             2 => {
                 let target = argmax(&x.slice(s![3 + MAXCARDS..3 + MAXCARDS + MAXPLAYERS]));
