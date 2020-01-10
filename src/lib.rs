@@ -6,7 +6,7 @@ mod state;
 use ndarray::ArrayView1;
 use numpy::{IntoPyArray, PyArray1};
 use pyo3::prelude::{
-    pyclass, pymethods, pymodule, Py, PyModule, PyObject, PyRawObject, PyResult, Python, ToPyObject,
+    pyclass, pymethods, pymodule, Py, PyModule, PyObject, PyRawObject, PyResult, Python,
 };
 use state::{Color, IllegalMoves, State, Value};
 
@@ -32,17 +32,17 @@ impl Game {
         });
     }
 
-    fn play(&mut self, position: usize) -> String {
+    fn play(&mut self, position: usize) -> Option<String> {
         match self.state.play(position) {
-            Ok(_) => "".to_string(),
-            Err(err) => format!("{:?}", err),
+            Ok(_) => None,
+            Err(err) => Some(format!("{:?}", err)),
         }
     }
 
-    fn discard(&mut self, position: usize) -> String {
+    fn discard(&mut self, position: usize) -> Option<String> {
         match self.state.play_discard(position) {
-            Ok(_) => "".to_string(),
-            Err(err) => format!("{:?}", err),
+            Ok(_) => None,
+            Err(err) => Some(format!("{:?}", err)),
         }
     }
 
@@ -71,11 +71,11 @@ impl Game {
         self.state.encode().into_pyarray(py).to_owned()
     }
 
-    fn decode(&mut self, py: Python, x: &PyArray1<f32>) -> PyObject {
+    fn decode(&mut self, x: &PyArray1<f32>) -> Option<String> {
         let x: ArrayView1<f32> = x.as_array();
         match self.state.decode(&x) {
-            Ok(score) => score.to_object(py),
-            Err(err) => format!("{:?}", err).to_object(py),
+            Ok(_) => None,
+            Err(err) => Some(format!("{:?}", err)),
         }
     }
 

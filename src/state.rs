@@ -532,7 +532,7 @@ impl State {
         x
     }
 
-    pub fn decode(&mut self, x: &ArrayView1<f32>) -> Result<usize, IllegalMoves> {
+    pub fn decode(&mut self, x: &ArrayView1<f32>) -> Result<(), IllegalMoves> {
         if x.len() != 3 + MAXCARDS + MAXPLAYERS + 10 {
             return Err(IllegalMoves::Error);
         }
@@ -556,7 +556,7 @@ impl State {
                 panic!();
             }
         }
-        Ok(self.score())
+        Ok(())
     }
 }
 
