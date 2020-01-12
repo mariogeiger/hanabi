@@ -100,7 +100,10 @@ def play_and_train(args, policy, optim):
 
             loss = [0]
             def sample(x, w=1):
-                m = torch.distributions.Categorical(logits=x)
+                if torch.rand(()) < args.randmove:
+                    m = torch.distributions.Categorical(logits=torch.zeros_like(x))
+                else:
+                    m = torch.distributions.Categorical(logits=x)
                 i = m.sample().item()
                 loss[0] += x.log_softmax(0)[i].mul(w)
                 return i
@@ -209,12 +212,13 @@ def execute(args):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument("--lr", type=float, default=1e-5)
     parser.add_argument("--bs", type=int, default=10)
     parser.add_argument("--n", type=int, default=500)
     parser.add_argument("--n_avg", type=int, default=1000)
-    parser.add_argument("--beta", type=float, default=1.0)
+    parser.add_argument("--beta", type=float, default=0.01)
     parser.add_argument("--gamma", type=float, default=0.99)
+    parser.add_argument("--randmove", type=float, default=0.4)
     parser.add_argument("--restore", type=str)
 
     parser.add_argument("--device", type=str, required=True)
