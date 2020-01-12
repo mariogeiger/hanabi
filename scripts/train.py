@@ -80,19 +80,14 @@ def linear(in_features, out_features, bias=True):
     return m
 
 
-def play_and_train(args, policy, optim, avg_score):
+def play_and_train(args, policy, optim):
     total_loss = 0
     turns = 0
     scores = []
 
     while turns < args.bs:
-
-        loss = [0]
-        def sample(x, w=1):
-            m = torch.distributions.Categorical(logits=x)
-            i = m.sample().item()
-            loss[0] += x.log_softmax(0)[i].mul(w)
-            return i
+        log_probs = []
+        rewards = []
 
         game = Game(4)
         t = time_logging.start()
@@ -103,7 +98,15 @@ def play_and_train(args, policy, optim, avg_score):
             x = args.beta * policy(x)
             t = time_logging.end("policy", t)
 
+            loss = [0]
+            def sample(x, w=1):
+                m = torch.distributions.Categorical(logits=x)
+                i = m.sample().item()
+                loss[0] += x.log_softmax(0)[i].mul(w)
+                return i
+
             action = sample(x[:3])
+            score = game.score
 
             if action == 0:
                 position = sample(x[3:3+5])
@@ -121,14 +124,35 @@ def play_and_train(args, policy, optim, avg_score):
                 else:
                     out = game.clue(target, "rgbyp"[info-5])
 
-            turns += 1
             t = time_logging.end("decode", t)
+
+            log_probs.append(loss[0])
             if out is not None:
+                rewards.append(-1)
                 break
 
-        score = game.score
-        total_loss += -(score - avg_score) * loss[0]
-        scores.append(score)
+            if game.gameover:
+                if game.score == 25:
+                    rewards.append(game.score - score)
+                else:
+                    rewards.append(-1)
+                break
+
+            rewards.append(game.score - score)
+
+        if len(log_probs) >= 3:
+            turns += len(log_probs)
+            R = 0
+            returns = []
+            for r in rewards[::-1]:
+                R = r + args.gamma * R
+                returns.insert(0, R)
+            returns = torch.tensor(returns, device=args.device, dtype=torch.float32)
+            returns = (returns - returns.mean()) / (returns.std() + 1e-5)
+            for log_prob, R in zip(log_probs, returns):
+                total_loss += -(log_prob * R)
+
+            scores.append(game.score)
 
     total_loss /= turns
 
@@ -164,9 +188,7 @@ def execute(args):
 
     t = tqdm.tqdm()
     for i in itertools.count(1):
-        avg_score = mean(scores[-args.n_avg:])
-
-        new_scores = play_and_train(args, policy, optim, avg_score)
+        new_scores = play_and_train(args, policy, optim)
         scores.extend(new_scores)
 
         if i % 1000 == 0:
@@ -178,6 +200,7 @@ def execute(args):
                 'scores': scores,
             }
 
+        avg_score = mean(scores[-args.n_avg:])
         t.update(len(new_scores))
         t.set_postfix_str("scores={} avg_score={:.2f}".format(scores[-5:], avg_score))
 
@@ -191,6 +214,7 @@ def main():
     parser.add_argument("--n", type=int, default=500)
     parser.add_argument("--n_avg", type=int, default=1000)
     parser.add_argument("--beta", type=float, default=1.0)
+    parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--restore", type=str)
 
     parser.add_argument("--device", type=str, required=True)

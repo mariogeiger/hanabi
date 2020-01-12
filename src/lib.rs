@@ -80,6 +80,11 @@ impl Game {
     }
 
     #[getter]
+    fn get_gameover(&self) -> bool {
+        self.state.gameover()
+    }
+
+    #[getter]
     fn get_turn(&self) -> usize {
         *self.state.turn()
     }
